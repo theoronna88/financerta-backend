@@ -36,7 +36,14 @@ public class JwtProvider {
 
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put("sub", userDetails.getUsername());
+        claims.put("roles", userDetails.getAuthorities());
+        claims.put("iat", Instant.now().getEpochSecond());
+        claims.put("exp", Instant.now().getEpochSecond() + expiration);
+        claims.put("nbf", Instant.now().getEpochSecond());
+        claims.put("iss", "financerta-api");
         return createToken(claims, userDetails.getUsername());
+
     }
 
     public String generateToken(UserDetails userDetails, Map<String, Object> extraClaims) {
