@@ -6,6 +6,7 @@ import br.com.ronna.financerta.dto.RegisterRequest;
 import br.com.ronna.financerta.enums.UserRole;
 import br.com.ronna.financerta.exception.EmailAlreadyExistsException;
 import br.com.ronna.financerta.exception.InvalidCredentialsException;
+import br.com.ronna.financerta.exception.PhoneAlreadyExistsException;
 import br.com.ronna.financerta.model.User;
 import br.com.ronna.financerta.repository.UserRepository;
 import br.com.ronna.financerta.security.JwtProvider;
@@ -36,6 +37,9 @@ public class AuthServiceImpl implements AuthService {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new EmailAlreadyExistsException("Email já está em uso");
         }
+        if (userRepository.existsByPhone(request.getPhone())) {
+            throw new PhoneAlreadyExistsException("Telefone já está em uso");
+        }
 
         // Criar novo usuário
         User user = new User();
@@ -53,6 +57,31 @@ public class AuthServiceImpl implements AuthService {
         String token = jwtProvider.generateToken(user);
 
         // Retornar resposta
+        return createAuthResponse(user, token);
+    }
+
+    @Override
+    public AuthResponse login(LoginRequest request) {
+        try {
+            // Autenticar usuário
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+            );
+
+            User user = (User) authentication.getPrincipal();
+
+            // Gerar token JWT
+            String token = jwtProvider.generateToken(user);
+
+            // Retornar resposta
+            return createAuthResponse(user, token);
+        } catch (BadCredentialsException e) {
+            throw new InvalidCredentialsException("Email ou senha inválidos");
+        }
+    }
+
+
+    private AuthResponse createAuthResponse(User user, String token) {
         return new AuthResponse(
                 token,
                 user.getId(),
@@ -62,40 +91,7 @@ public class AuthServiceImpl implements AuthService {
                 user.getRole().name()
         );
     }
-
-    @Override
-    public AuthResponse login(LoginRequest request) {
-        try {
-            // Autenticar usuário
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            request.getEmail(),
-                            request.getPassword()
-                    )
-            );
-
-            // Obter UserDetails do authentication
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-
-            // Buscar usuário completo do banco
-            User user = userRepository.findByEmail(request.getEmail())
-                    .orElseThrow(() -> new InvalidCredentialsException("Email ou senha inválidos"));
-
-            // Gerar token JWT
-            String token = jwtProvider.generateToken(userDetails);
-
-            // Retornar resposta
-            return new AuthResponse(
-                    token,
-                    user.getId(),
-                    user.getName(),
-                    user.getEmail(),
-                    user.getPhone(),
-                    user.getRole().name()
-            );
-        } catch (BadCredentialsException e) {
-            throw new InvalidCredentialsException("Email ou senha inválidos");
-        }
-    }
 }
+
+
 
