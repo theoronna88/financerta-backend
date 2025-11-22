@@ -10,7 +10,7 @@ import java.util.UUID;
 public interface CreditCardRepository extends CrudRepository<CreditCard, UUID> {
     List<CreditCard> findAllByUserId(UUID userId);
 
-    Optional<CreditCard> findAllByIdAndUserId(UUID id, UUID userId);
+    Optional<CreditCard> findByIdAndUserId(UUID id, UUID userId);
 
     List<CreditCard> findAllByActiveTrueAndUserId(UUID userId);
 }

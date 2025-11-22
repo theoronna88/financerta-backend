@@ -10,4 +10,5 @@ import java.util.UUID;
 public interface TransactionCategoryRepository extends CrudRepository<TransactionCategory, UUID> {
     List<TransactionCategory> findByUserId(java.util.UUID userId);
     Optional<TransactionCategory> findByIdAndUserId(UUID id, UUID userId);
+    boolean existsByIdAndUserId(UUID id, UUID userId);
 }
