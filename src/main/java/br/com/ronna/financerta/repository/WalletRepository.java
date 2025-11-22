@@ -10,4 +10,5 @@ import java.util.UUID;
 public interface WalletRepository extends CrudRepository<Wallet, UUID> {
     List<Wallet> findAllByUserId(UUID userId);
     Optional<Wallet> findByIdAndUserId(UUID id, UUID userId);
+    boolean existsByIdAndUserId(UUID id, UUID userId);
 }

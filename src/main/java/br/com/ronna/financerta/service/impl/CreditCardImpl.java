@@ -28,7 +28,7 @@ public class CreditCardImpl implements CreditCardService {
 
     @Override
     public CreditCardDto findById(UUID id, UUID userId) {
-        return convertToDto(repo.findAllByIdAndUserId(id, userId).orElseThrow());
+        return convertToDto(repo.findByIdAndUserId(id, userId).orElseThrow());
     }
 
     @Override
@@ -48,7 +48,7 @@ public class CreditCardImpl implements CreditCardService {
 
     @Override
     public CreditCardDto update(UUID id, CreditCardDto creditCardDto, UUID userId) {
-        var existingCard = repo.findAllByIdAndUserId(id, userId).orElseThrow();
+        var existingCard = repo.findByIdAndUserId(id, userId).orElseThrow();
         existingCard.setName(creditCardDto.getName());
         existingCard.setClosingDay(creditCardDto.getClosingDay());
         existingCard.setDueDay(creditCardDto.getDueDay());
@@ -58,7 +58,7 @@ public class CreditCardImpl implements CreditCardService {
 
     @Override
     public void delete(UUID id, UUID userId) {
-        var creditCard = repo.findAllByIdAndUserId(id, userId).orElseThrow();
+        var creditCard = repo.findByIdAndUserId(id, userId).orElseThrow();
         creditCard.setActive(false);
         repo.save(creditCard);
 
