@@ -35,4 +35,6 @@ build/
 ### Environment Variables ###
 .env
 .env.local
+.claude
+
 
