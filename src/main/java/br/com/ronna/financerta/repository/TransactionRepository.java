@@ -12,5 +12,5 @@ public interface TransactionRepository extends CrudRepository<Transaction, UUID>
     Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
     List<Transaction> findByUserId(UUID userId);
 
-    Optional<Transaction> findByPurchaseGroupId(UUID purchaseGroupId);
+    List<Transaction> findByPurchaseGroupId(UUID purchaseGroupId);
 }
