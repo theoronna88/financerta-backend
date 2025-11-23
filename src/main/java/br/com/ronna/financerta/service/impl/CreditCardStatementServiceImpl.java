@@ -38,4 +38,11 @@ public class CreditCardStatementServiceImpl implements CreditCardStatementServic
     public CreditCardStatementDto update(CreditCardStatementDto creditCardStatementDto, UUID userId) {
         return null;
     }
+
+    @Override
+    public CreditCardStatement convertDtoToEntity(CreditCardStatementDto dto) {
+        CreditCardStatement entity = new CreditCardStatement();
+        BeanUtils.copyProperties(dto, entity);
+        return entity;
+    }
 }

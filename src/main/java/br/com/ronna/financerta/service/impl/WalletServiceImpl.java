@@ -2,6 +2,7 @@ package br.com.ronna.financerta.service.impl;
 
 import br.com.ronna.financerta.dto.WalletDto;
 import br.com.ronna.financerta.model.Wallet;
+import br.com.ronna.financerta.repository.UserRepository;
 import br.com.ronna.financerta.repository.WalletRepository;
 import br.com.ronna.financerta.service.WalletService;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import java.util.UUID;
 public class WalletServiceImpl implements WalletService {
 
     private final WalletRepository repo;
+    private final UserRepository userRepo;
 
     @Override
     public WalletDto findById(UUID id, UUID userId) {
@@ -32,11 +34,12 @@ public class WalletServiceImpl implements WalletService {
     @Override
     public WalletDto createWallet(WalletDto walletDto, UUID userId) {
         var wallet = new Wallet();
+        var user = userRepo.findById(userId).orElseThrow();
         BeanUtils.copyProperties(walletDto, wallet);
         wallet.setCreatedAt(LocalDateTime.now());
         wallet.setActive(true);
         wallet.setUpdatedAt(LocalDateTime.now());
-        wallet.setUserId(userId);
+        wallet.setUser(user);
         return convertToDto(repo.save(wallet));
     }
 
