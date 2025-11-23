@@ -3,6 +3,7 @@ package br.com.ronna.financerta.service.impl;
 import br.com.ronna.financerta.dto.CreditCardDto;
 import br.com.ronna.financerta.model.CreditCard;
 import br.com.ronna.financerta.repository.CreditCardRepository;
+import br.com.ronna.financerta.repository.UserRepository;
 import br.com.ronna.financerta.service.CreditCardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -18,6 +19,7 @@ import java.util.UUID;
 public class CreditCardImpl implements CreditCardService {
 
     private final CreditCardRepository repo;
+    private final UserRepository userRepo;
 
 
     @Override
@@ -33,12 +35,13 @@ public class CreditCardImpl implements CreditCardService {
 
     @Override
     public CreditCardDto save(CreditCardDto creditCardDto, UUID userId) {
+        var user = userRepo.findById(userId).orElseThrow();
         var creditCard = new CreditCard();
         creditCard.setName(creditCardDto.getName());
         creditCard.setClosingDay(creditCardDto.getClosingDay());
         creditCard.setDueDay(creditCardDto.getDueDay());
         creditCard.setLimitValue(creditCardDto.getLimitValue());
-        creditCard.setUserId(userId);
+        creditCard.setUser(user);
 
         creditCard.setCreatedAt(LocalDateTime.now());
         creditCard.setUpdatedAt(LocalDateTime.now());

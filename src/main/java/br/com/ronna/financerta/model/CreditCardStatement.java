@@ -15,10 +15,12 @@ public class CreditCardStatement {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
-    @Column(nullable = false)
-    private UUID userId;
-    @Column(nullable = false)
-    private UUID creditCardId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "credit_card_id", nullable = false)
+    private CreditCard creditCard;
 
     @Column(nullable = false)
     private Integer month;
@@ -26,6 +28,7 @@ public class CreditCardStatement {
     private Integer year;
 
 
+    @OneToMany(mappedBy = "creditCardStatement", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Transaction> transactions;
 
     @Column(nullable = false)

@@ -15,8 +15,9 @@ public class CreditCard {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
-    @Column(nullable = false)
-    private UUID userId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
     @Column(nullable = false)
     private String name;
     @Column(nullable = false)
@@ -27,9 +28,9 @@ public class CreditCard {
     private BigDecimal limitValue;
     @Column(nullable = false)
     private boolean active = true;
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private LocalDateTime createdAt;
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private LocalDateTime updatedAt;
 
     @PrePersist

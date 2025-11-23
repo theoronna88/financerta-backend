@@ -5,9 +5,13 @@ import br.com.ronna.financerta.dto.TransactionDto;
 import br.com.ronna.financerta.enums.PaymentMethod;
 import br.com.ronna.financerta.enums.TransactionType;
 import br.com.ronna.financerta.exception.TransactionException;
+import br.com.ronna.financerta.model.*;
 import br.com.ronna.financerta.model.CreditCard;
 import br.com.ronna.financerta.model.CreditCardStatement;
 import br.com.ronna.financerta.model.Transaction;
+import br.com.ronna.financerta.model.User;
+import br.com.ronna.financerta.model.Wallet;
+import br.com.ronna.financerta.model.TransactionCategory;
 import br.com.ronna.financerta.repository.*;
 import br.com.ronna.financerta.service.CreditCardStatementService;
 import org.junit.jupiter.api.Test;
@@ -100,10 +104,12 @@ class TransactionServiceImplTest {
         inputDto.setWalletId(walletId);
         inputDto.setCategoryId(categoryId);
 
-        // Simula o retorno 'true' para as validações dentro de isValidTransactionDto
-        when(userRepo.existsById(userId)).thenReturn(true);
-        when(walletRepo.existsByIdAndUserId(walletId, userId)).thenReturn(true);
-        when(categoryRepo.existsByIdAndUserId(categoryId, userId)).thenReturn(true);
+        // Simula o retorno para as validações
+        User mockUser = new User();
+        mockUser.setId(userId);
+        when(userRepo.findById(userId)).thenReturn(Optional.of(mockUser));
+        when(walletRepo.findByIdAndUserId(walletId, userId)).thenReturn(Optional.of(new Wallet()));
+        when(categoryRepo.findByIdAndUserId(categoryId, userId)).thenReturn(Optional.of(new TransactionCategory()));
 
         // Quando o repo.save for chamado, retorne uma entidade Transaction mockada
         Transaction savedTransaction = new Transaction();
@@ -161,8 +167,10 @@ class TransactionServiceImplTest {
         inputDto.setWalletId(walletId);
         inputDto.setCategoryId(categoryId);
 
-        when(userRepo.existsById(userId)).thenReturn(true);
-        when(walletRepo.existsByIdAndUserId(walletId, userId)).thenReturn(false); // Simula que a carteira não existe
+        User mockUser = new User();
+        mockUser.setId(userId);
+        when(userRepo.findById(userId)).thenReturn(Optional.of(mockUser));
+        when(walletRepo.findByIdAndUserId(walletId, userId)).thenReturn(Optional.empty()); // Simula que a carteira não existe
 
         // Act & Assert
         // Verifica se a chamada ao método lança a exceção TransactionException
@@ -217,18 +225,21 @@ class TransactionServiceImplTest {
         inputDto.setCategoryId(categoryId);
         inputDto.setCreditCardId(creditCardId);
 
+        User mockUser = new User();
+        mockUser.setId(userId);
+
         CreditCard mockCreditCard = new CreditCard();
         mockCreditCard.setId(creditCardId);
-        mockCreditCard.setUserId(userId);
+        mockCreditCard.setUser(mockUser);
         mockCreditCard.setClosingDay(15); // Dia de fechamento da fatura
         mockCreditCard.setDueDay(25);
         mockCreditCard.setName("Cartão Teste");
         mockCreditCard.setLimitValue(new BigDecimal("5000.00"));
 
-        // Mockar todas as validações para retornarem true
-        when(userRepo.existsById(userId)).thenReturn(true);
-        when(walletRepo.existsByIdAndUserId(walletId, userId)).thenReturn(true);
-        when(categoryRepo.existsByIdAndUserId(categoryId, userId)).thenReturn(true);
+        // Mockar todas as validações para retornarem valores válidos
+        when(userRepo.findById(userId)).thenReturn(Optional.of(mockUser));
+        when(walletRepo.findByIdAndUserId(walletId, userId)).thenReturn(Optional.of(new Wallet()));
+        when(categoryRepo.findByIdAndUserId(categoryId, userId)).thenReturn(Optional.of(new TransactionCategory()));
         when(creditCardRepo.findByIdAndUserId(creditCardId, userId)).thenReturn(Optional.of(mockCreditCard));
 
         // Simula que não há faturas existentes, forçando a criação de novas
@@ -269,8 +280,8 @@ class TransactionServiceImplTest {
         assertNotNull(firstInstallment.getPurchaseGroupId(), "purchaseGroupId não deve ser nulo");
         assertEquals(PaymentMethod.CREDIT_CARD, firstInstallment.getPaymentMethod(),
                 "Método de pagamento deve ser CREDIT_CARD");
-        assertNotNull(firstInstallment.getCreditCardStatementId(),
-                "creditCardStatementId não deve ser nulo");
+        assertNotNull(firstInstallment.getCreditCardStatement(),
+                "creditCardStatement não deve ser nulo");
 
         // Verifica a segunda parcela
         Transaction secondInstallment = savedTransactions.get(1);
@@ -327,9 +338,12 @@ class TransactionServiceImplTest {
         UUID userId = UUID.randomUUID();
         UUID transactionId = UUID.randomUUID();
 
+        User user = new User();
+        user.setId(userId);
+
         Transaction transactionToDelete = new Transaction();
         transactionToDelete.setId(transactionId);
-        transactionToDelete.setUserId(userId);
+        transactionToDelete.setUser(user);
         transactionToDelete.setPurchaseGroupId(null); // NÃO pertence a um grupo
         transactionToDelete.setInstallmentNumber(null);
         transactionToDelete.setTotalInstallments(1);
@@ -386,10 +400,13 @@ class TransactionServiceImplTest {
         UUID purchaseGroupId = UUID.randomUUID();
         UUID transactionId = UUID.randomUUID(); // ID da parcela que será deletada
 
+        User user = new User();
+        user.setId(userId);
+
         // Criar as 3 parcelas que pertencem ao mesmo grupo de compra
         Transaction installment1 = new Transaction();
         installment1.setId(UUID.randomUUID());
-        installment1.setUserId(userId);
+        installment1.setUser(user);
         installment1.setPurchaseGroupId(purchaseGroupId);
         installment1.setInstallmentNumber(1);
         installment1.setTotalInstallments(3);
@@ -401,7 +418,7 @@ class TransactionServiceImplTest {
 
         Transaction installment2 = new Transaction();
         installment2.setId(transactionId); // Esta é a que será deletada
-        installment2.setUserId(userId);
+        installment2.setUser(user);
         installment2.setPurchaseGroupId(purchaseGroupId);
         installment2.setInstallmentNumber(2);
         installment2.setTotalInstallments(3);
@@ -413,7 +430,7 @@ class TransactionServiceImplTest {
 
         Transaction installment3 = new Transaction();
         installment3.setId(UUID.randomUUID());
-        installment3.setUserId(userId);
+        installment3.setUser(user);
         installment3.setPurchaseGroupId(purchaseGroupId);
         installment3.setInstallmentNumber(3);
         installment3.setTotalInstallments(3);

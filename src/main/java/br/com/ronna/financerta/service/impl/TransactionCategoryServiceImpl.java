@@ -3,6 +3,7 @@ package br.com.ronna.financerta.service.impl;
 import br.com.ronna.financerta.dto.TransactionCategoryDto;
 import br.com.ronna.financerta.model.TransactionCategory;
 import br.com.ronna.financerta.repository.TransactionCategoryRepository;
+import br.com.ronna.financerta.repository.UserRepository;
 import br.com.ronna.financerta.service.TransactionCategoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -17,6 +18,7 @@ import java.util.UUID;
 public class TransactionCategoryServiceImpl implements TransactionCategoryService {
 
     private final TransactionCategoryRepository repo;
+    private final UserRepository userRepo;
 
     @Override
     public List<TransactionCategoryDto> findAllByUserId(UUID userId) {
@@ -36,8 +38,9 @@ public class TransactionCategoryServiceImpl implements TransactionCategoryServic
     @Override
     public TransactionCategoryDto save(TransactionCategoryDto transactionCategoryDto, UUID userId) {
         var transactionCategory = new TransactionCategory();
+        var user = userRepo.findById(userId).orElseThrow();
         BeanUtils.copyProperties(transactionCategoryDto, transactionCategory);
-        transactionCategory.setUserId(userId);
+        transactionCategory.setUser(user);
         transactionCategory.setCreatedAt(LocalDateTime.now());
         transactionCategory.setUpdatedAt(LocalDateTime.now());
         return convertToDto(repo.save(transactionCategory));
@@ -46,9 +49,10 @@ public class TransactionCategoryServiceImpl implements TransactionCategoryServic
     @Override
     public TransactionCategoryDto update(UUID id, TransactionCategoryDto transactionCategoryDto, UUID userId) {
         var existingTransactionCategory = repo.findByIdAndUserId(id, userId).orElseThrow();
+        var user = userRepo.findById(userId).orElseThrow();
         var updatedTransactionCategory = new TransactionCategory();
         updatedTransactionCategory.setId(existingTransactionCategory.getId());
-        updatedTransactionCategory.setUserId(existingTransactionCategory.getUserId());
+        updatedTransactionCategory.setUser(user);
         updatedTransactionCategory.setName(transactionCategoryDto.getName());
         updatedTransactionCategory.setUpdatedAt(LocalDateTime.now());
         return convertToDto(repo.save(updatedTransactionCategory));

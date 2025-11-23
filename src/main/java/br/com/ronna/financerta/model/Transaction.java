@@ -18,12 +18,18 @@ public class Transaction {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
-    @Column(nullable = false)
-    private UUID userId;
-    private UUID walletId;
-    private UUID creditCardId;
-    @Column(nullable = false)
-    private UUID categoryId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "wallet_id", nullable = false)
+    private Wallet wallet;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "credit_card_id")
+    private CreditCard creditCard;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id", nullable = false)
+    private TransactionCategory category;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -43,7 +49,9 @@ public class Transaction {
     private Integer installmentNumber;
     private Integer totalInstallments;
 
-    private UUID creditCardStatementId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "credit_card_statement_id")
+    private CreditCardStatement creditCardStatement;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

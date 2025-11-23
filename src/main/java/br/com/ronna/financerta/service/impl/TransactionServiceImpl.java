@@ -4,14 +4,11 @@ import br.com.ronna.financerta.dto.CreditCardStatementDto;
 import br.com.ronna.financerta.dto.TransactionDto;
 import br.com.ronna.financerta.enums.PaymentMethod;
 import br.com.ronna.financerta.exception.TransactionException;
-import br.com.ronna.financerta.model.CreditCard;
-import br.com.ronna.financerta.model.CreditCardStatement;
-import br.com.ronna.financerta.model.Transaction;
+import br.com.ronna.financerta.model.*;
 import br.com.ronna.financerta.repository.*;
 import br.com.ronna.financerta.service.CreditCardStatementService;
 import br.com.ronna.financerta.service.TransactionService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -34,35 +31,52 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionCategoryRepository categoryRepo;
     private final CreditCardStatementRepository statementRepo;
 
-    private final CreditCardStatementService statementService;
+    private final CreditCardStatementService  statementService;
 
     @Override
     public TransactionDto createTransaction(TransactionDto transactionDto, UUID userId) {
-        // Verificar se usuário existe x
-        // Verificar se carteira existe e pertence ao usuário x
-        // Verificar se cartão de crédito != null, existe e pertence ao usuário x
-        // Verificar se categoria != null, existe e pertence ao usuário x
-        // Verificar se é compra parcelada
-        // Criar grupo de compra se necessário
-        // Verificar em qual fatura do cartão de crédito a transação deve ser adicionada, se aplicável
-        // Salvar transação(s)
-
         // Validações
-        if (!isValidTransactionDto(transactionDto, userId)){
-            throw new TransactionException("Dados inválidos para criação de transação");
+        var userOpt = userRepo.findById(userId);
+        if (userOpt.isEmpty()) {
+            throw new TransactionException("Usuário não encontrado");
+        }
+        var walletOpt = walletRepo.findByIdAndUserId(transactionDto.getWalletId(), userId);
+        if (walletOpt.isEmpty()) {
+            throw new TransactionException("Carteira não encontrada para o usuário");
+        }
+        var categoryOpt = categoryRepo.findByIdAndUserId(transactionDto.getCategoryId(), userId);
+        if (categoryOpt.isEmpty()) {
+            throw new TransactionException("Categoria de transação não encontrada para o usuário");
+        }
+        Optional<CreditCard> creditCardOpt = Optional.empty();
+        if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+            creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
+            if (creditCardOpt.isEmpty()) {
+                throw new TransactionException("Cartão de crédito não encontrado para o usuário");
+            }
         }
 
         // É uma compra parcelada?
         if (transactionDto.getTotalInstallments() != null && transactionDto.getTotalInstallments() > 1) {
-            Optional<CreditCard> creditCardOpt = Optional.empty();
-            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
-                creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
-            }
-            return installmentLogic(transactionDto, userId, creditCardOpt);
+            return installmentLogic(transactionDto, userOpt.get(), creditCardOpt.get(), categoryOpt.get(), walletOpt.get());
         } else {
             // Lógica para transação única
             var transaction = new Transaction();
-            BeanUtils.copyProperties(transactionDto, transaction);
+
+            transaction.setUser(userOpt.get());
+            transaction.setWallet(walletOpt.get());
+            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                transaction.setCreditCard(creditCardOpt.get());
+            }
+            transaction.setCategory(categoryOpt.get());
+
+            transaction.setType(transactionDto.getType());
+
+            transaction.setDescription(transactionDto.getDescription());
+            transaction.setAmount(transactionDto.getAmount());
+            transaction.setDate(transactionDto.getDate());
+            transaction.setPaymentMethod(transactionDto.getPaymentMethod());
+
             transaction.setCreatedAt(LocalDateTime.now());
             transaction.setUpdatedAt(LocalDateTime.now());
             var savedTransaction = repo.save(transaction);
@@ -83,14 +97,27 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     public TransactionDto updateTransaction(UUID id, TransactionDto transactionDto, UUID userId) {
-        // Realizar primeiro as validações semelhantes ao createTransaction
-        // Depois atualizar os campos permitidos
-        if (!isValidTransactionDto(transactionDto, userId)){
-            throw new TransactionException("Dados inválidos para atualização de transação");
+        // Validações
+        var userOpt = userRepo.findById(userId);
+        if (userOpt.isEmpty()) {
+            throw new TransactionException("Usuário não encontrado");
         }
-
+        var walletOpt = walletRepo.findByIdAndUserId(transactionDto.getWalletId(), userId);
+        if (walletOpt.isEmpty()) {
+            throw new TransactionException("Carteira não encontrada para o usuário");
+        }
+        var categoryOpt = categoryRepo.findByIdAndUserId(transactionDto.getCategoryId(), userId);
+        if (categoryOpt.isEmpty()) {
+            throw new TransactionException("Categoria de transação não encontrada para o usuário");
+        }
+        Optional<CreditCard> creditCardOpt = Optional.empty();
+        if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+            creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
+            if (creditCardOpt.isEmpty()) {
+                throw new TransactionException("Cartão de crédito não encontrado para o usuário");
+            }
+        }
         var existingTransaction = repo.findByIdAndUserId(id, userId).orElseThrow();
-
         boolean isInstallmentToUnique = false;
         if (existingTransaction.getPurchaseGroupId() != null) {
             // Deleta todas as parcelas do grupo de compra
@@ -102,15 +129,28 @@ public class TransactionServiceImpl implements TransactionService {
             isInstallmentToUnique = true;
         }
         if (transactionDto.getTotalInstallments() != null && transactionDto.getTotalInstallments() > 1 ) {
-            Optional<CreditCard> creditCardOpt = Optional.empty();
             if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
                 creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
             }
-            return installmentLogic(transactionDto, userId, creditCardOpt);
+            return installmentLogic(transactionDto, userOpt.get(), creditCardOpt.get(), categoryOpt.get(), walletOpt.get());
         } else {
             if (isInstallmentToUnique) {
                 var newTransaction = new Transaction();
-                BeanUtils.copyProperties(transactionDto, newTransaction);
+
+                newTransaction.setUser(userOpt.get());
+                newTransaction.setWallet(walletOpt.get());
+                if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                    newTransaction.setCreditCard(creditCardOpt.get());
+                }
+                newTransaction.setCategory(categoryOpt.get());
+
+                newTransaction.setType(transactionDto.getType());
+
+                newTransaction.setDescription(transactionDto.getDescription());
+                newTransaction.setAmount(transactionDto.getAmount());
+                newTransaction.setDate(transactionDto.getDate());
+                newTransaction.setPaymentMethod(transactionDto.getPaymentMethod());
+
                 newTransaction.setCreatedAt(existingTransaction.getCreatedAt());
                 newTransaction.setUpdatedAt(LocalDateTime.now());
                 var updatedTransaction = repo.save(newTransaction);
@@ -119,12 +159,14 @@ public class TransactionServiceImpl implements TransactionService {
             // Atualizar transação única
             existingTransaction.setInstallmentNumber(transactionDto.getInstallmentNumber());
             existingTransaction.setTotalInstallments(transactionDto.getTotalInstallments());
+            existingTransaction.setPaymentMethod(transactionDto.getPaymentMethod());
             existingTransaction.setAmount(transactionDto.getAmount());
             existingTransaction.setDate(transactionDto.getDate());
             existingTransaction.setPurchaseGroupId(transactionDto.getPurchaseGroupId());
-            existingTransaction.setCreditCardId(transactionDto.getCreditCardId());
-            existingTransaction.setCategoryId(transactionDto.getCategoryId());
-            existingTransaction.setUserId(userId);
+            existingTransaction.setCreditCard(creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId).orElse(null));
+            existingTransaction.setWallet(walletOpt.get());
+            existingTransaction.setCategory(categoryOpt.get());
+            existingTransaction.setUser(userOpt.get());
             existingTransaction.setDescription(transactionDto.getDescription());
             existingTransaction.setUpdatedAt(LocalDateTime.now());
             var updatedTransaction = repo.save(existingTransaction);
@@ -149,7 +191,24 @@ public class TransactionServiceImpl implements TransactionService {
 
     private TransactionDto convertToDto(Transaction transaction) {
         var dto = new TransactionDto();
-        BeanUtils.copyProperties(transaction, dto);
+
+        dto.setId(transaction.getId() != null ? transaction.getId() : null);
+        dto.setUserId(transaction.getUser().getId());
+        dto.setWalletId(transaction.getWallet().getId());
+        dto.setCreditCardId(transaction.getCreditCard() != null ? transaction.getCreditCard().getId() : null);
+        dto.setCategoryId(transaction.getCategory().getId());
+
+        dto.setType(transaction.getType());
+
+        dto.setAmount(transaction.getAmount());
+        dto.setDate(transaction.getDate());
+        dto.setDescription(transaction.getDescription());
+        dto.setPaymentMethod(transaction.getPaymentMethod());
+
+        dto.setInstallmentNumber(transaction.getInstallmentNumber());
+        dto.setPurchaseGroupId(transaction.getPurchaseGroupId());
+        dto.setTotalInstallments(transaction.getTotalInstallments());
+
         return dto;
     }
 
@@ -157,42 +216,8 @@ public class TransactionServiceImpl implements TransactionService {
         return date.plusMonths(installmentNumber - 1);
     }
 
-    private CreditCardStatementDto convertToDto(CreditCardStatement creditCardStatement) {
-        var dto = new CreditCardStatementDto();
-        BeanUtils.copyProperties(creditCardStatement, dto);
-        return dto;
-    }
 
-    private boolean isValidTransactionDto(TransactionDto transactionDto, UUID userId) {
-        // Implementar validações necessárias
-        if (!userRepo.existsById(userId)) {
-            throw new TransactionException("Usuário não encontrado");
-        }
-        if (!walletRepo.existsByIdAndUserId(transactionDto.getWalletId(), userId)) {
-            throw new TransactionException("Carteira não encontrada para o usuário");
-        }
-
-        if (transactionDto.getCategoryId() == null) {
-            throw new TransactionException("Categoria de transação é obrigatória");
-        }
-        if (!categoryRepo.existsByIdAndUserId(transactionDto.getCategoryId(), userId)) {
-            throw new TransactionException("Categoria de transação não encontrada para o usuário");
-        }
-
-        Optional<CreditCard> creditCardOpt = Optional.empty();
-        if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
-            if(transactionDto.getCreditCardId() == null) {
-                throw new TransactionException("Cartão de crédito é obrigatório para compra com cartão de crédito");
-            }
-            creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
-            if (creditCardOpt.isEmpty()) {
-                throw new TransactionException("Cartão de crédito não encontrado para o usuário");
-            }
-        }
-        return true;
-    }
-
-    private TransactionDto installmentLogic(TransactionDto transactionDto, UUID userId, Optional<CreditCard> creditCardOpt) {
+    private TransactionDto installmentLogic(TransactionDto transactionDto, User user, CreditCard creditCard, TransactionCategory category, Wallet wallet) {
             var savedTransaction = new Transaction();
             // Criação do grupo de compra parcelada
             var purchaseGroupId = UUID.randomUUID();
@@ -207,23 +232,31 @@ public class TransactionServiceImpl implements TransactionService {
 
             for (int i = 0; i < transactionDto.getTotalInstallments(); i++) {
                 var transaction = new Transaction();
+                transaction.setUser(user);
+                transaction.setWallet(wallet);
+                transaction.setCategory(category);
+                transaction.setType(transactionDto.getType());
+                transaction.setAmount(installmentAmount);
+
+                // Ajusta a data da transação conforme o número da parcela
+                transaction.setDate(getInstallmentDate(transactionDto.getDate(), i + 1));
+                transaction.setDescription(transactionDto.getDescription() + " - Parcela " + (i + 1) + " de " + transactionDto.getTotalInstallments());
+                transaction.setPurchaseGroupId(purchaseGroupId);
+                transaction.setInstallmentNumber(i + 1);
+                transaction.setTotalInstallments(transactionDto.getTotalInstallments());
+
+                transaction.setCreatedAt(LocalDateTime.now());
+                transaction.setUpdatedAt(LocalDateTime.now());
+
                 // Verifica método de pagamento
                 if (transactionDto.getPaymentMethod() == PaymentMethod.CREDIT_CARD) {
                     // Lógica para adicionar a transação na fatura correta do cartão de crédito
-                    BeanUtils.copyProperties(transactionDto, transaction);
-                    transaction.setCreatedAt(LocalDateTime.now());
-                    transaction.setUpdatedAt(LocalDateTime.now());
-                    transaction.setInstallmentNumber(i + 1);
-                    // Ajustar a data da transação conforme o número da parcela
-                    transaction.setDate(getInstallmentDate(transactionDto.getDate(), i + 1));
-                    transaction.setPurchaseGroupId(purchaseGroupId);
-                    transaction.setCreditCardId(transactionDto.getCreditCardId());
-                    transaction.setAmount(installmentAmount);
+                    transaction.setCreditCard(creditCard);
+                    transaction.setPaymentMethod(transactionDto.getPaymentMethod());
 
                     // Lógica para vincular à fatura do cartão de crédito
                     // Verificar se existe fatura para o mês/ano da transação
-                    // TODO: verificar a fatura correta considerando a data de fechamento do cartão
-                    int closingDay = creditCardOpt.get().getClosingDay();
+                    int closingDay = creditCard.getClosingDay();
                     // Se closingDay == 31, considerar o último dia do mês
                     LocalDate transactionDate = transaction.getDate();
                     if (transactionDate.getMonth().equals(Month.FEBRUARY) && closingDay > 28) {
@@ -248,19 +281,26 @@ public class TransactionServiceImpl implements TransactionService {
                         creditCardStatementDto = new CreditCardStatementDto();
                         creditCardStatementDto.setYear(transaction.getDate().getYear());
                         creditCardStatementDto.setMonth(transaction.getDate().getMonthValue());
-                        creditCardStatementDto.setCreditCardId(transaction.getCreditCardId());
+                        creditCardStatementDto.setCreditCardId(transactionDto.getCreditCardId());
                         creditCardStatementDto.setTransactions(List.of(transaction));
-                        creditCardStatementDto = statementService.save(creditCardStatementDto, userId);
+                        creditCardStatementDto = statementService.save(creditCardStatementDto, user.getId());
+                        transaction.setCreditCardStatement(statementService.convertDtoToEntity(creditCardStatementDto));
                     } else {
-                        creditCardStatementDto = convertToDto(statementOpt.get());
+                        transaction.setCreditCardStatement(statementOpt.get());
                     }
-                    transaction.setCreditCardStatementId(creditCardStatementDto.getId());
                     savedTransaction = repo.save(transaction);
                 } else {
                     // Lógica para boleto
-                    BeanUtils.copyProperties(transactionDto, transaction);
-                    transaction.setCreatedAt(LocalDateTime.now());
-                    transaction.setUpdatedAt(LocalDateTime.now());
+                    LocalDate transactionDate = transaction.getDate();
+                    if (transactionDate.getDayOfMonth() > 28 && transactionDate.getMonth().equals(Month.FEBRUARY)) {
+                        transactionDate = transactionDate.withDayOfMonth(28);
+                    }
+                    if (transactionDate.getDayOfMonth() == 31) {
+                        transactionDate = transactionDate.withDayOfMonth(transactionDate.lengthOfMonth());
+                    }
+                    transaction.setDate(transactionDate);
+                    transaction.setPaymentMethod(transactionDto.getPaymentMethod());
+
                     transaction.setInstallmentNumber(i + 1);
                     // Ajustar a data da transação conforme o número da parcela
                     transaction.setDate(getInstallmentDate(transactionDto.getDate(), i + 1));

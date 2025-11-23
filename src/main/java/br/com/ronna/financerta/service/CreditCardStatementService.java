@@ -13,4 +13,6 @@ public interface CreditCardStatementService {
     List<CreditCardStatementDto> getAllByCreditCardId(UUID creditCardId, UUID userId);
     CreditCardStatementDto update(CreditCardStatementDto creditCardStatementDto, UUID userId);
 
+
+    CreditCardStatement convertDtoToEntity(CreditCardStatementDto creditCardStatementDto);
 }
