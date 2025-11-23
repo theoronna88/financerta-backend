@@ -17,6 +17,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -50,6 +51,9 @@ public class TransactionServiceImpl implements TransactionService {
         }
         Optional<CreditCard> creditCardOpt = Optional.empty();
         if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+            if (transactionDto.getCreditCardId() == null) {
+                throw new TransactionException("ID do cartão de crédito é obrigatório para este método de pagamento");
+            }
             creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
             if (creditCardOpt.isEmpty()) {
                 throw new TransactionException("Cartão de crédito não encontrado para o usuário");
@@ -58,7 +62,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         // É uma compra parcelada?
         if (transactionDto.getTotalInstallments() != null && transactionDto.getTotalInstallments() > 1) {
-            return installmentLogic(transactionDto, userOpt.get(), creditCardOpt.get(), categoryOpt.get(), walletOpt.get());
+            return installmentLogic(transactionDto, userOpt, creditCardOpt, categoryOpt, walletOpt);
         } else {
             // Lógica para transação única
             var transaction = new Transaction();
@@ -122,6 +126,9 @@ public class TransactionServiceImpl implements TransactionService {
         }
         Optional<CreditCard> creditCardOpt = Optional.empty();
         if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+            if (transactionDto.getCreditCardId() == null) {
+                throw new TransactionException("ID do cartão de crédito é obrigatório para este método de pagamento");
+            }
             creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
             if (creditCardOpt.isEmpty()) {
                 throw new TransactionException("Cartão de crédito não encontrado para o usuário");
@@ -139,10 +146,10 @@ public class TransactionServiceImpl implements TransactionService {
             isInstallmentToUnique = true;
         }
         if (transactionDto.getTotalInstallments() != null && transactionDto.getTotalInstallments() > 1 ) {
-            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
-                creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
-            }
-            return installmentLogic(transactionDto, userOpt.get(), creditCardOpt.get(), categoryOpt.get(), walletOpt.get());
+            // if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                // creditCardOpt = creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId);
+            // }
+            return installmentLogic(transactionDto, userOpt, creditCardOpt, categoryOpt, walletOpt);
         } else {
             if (isInstallmentToUnique) {
                 var newTransaction = new Transaction();
@@ -173,7 +180,13 @@ public class TransactionServiceImpl implements TransactionService {
             existingTransaction.setAmount(transactionDto.getAmount());
             existingTransaction.setDate(transactionDto.getDate());
             existingTransaction.setPurchaseGroupId(transactionDto.getPurchaseGroupId());
-            existingTransaction.setCreditCard(creditCardRepo.findByIdAndUserId(transactionDto.getCreditCardId(), userId).orElse(null));
+            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                existingTransaction.setCreditCard(creditCardOpt.get());
+                existingTransaction.setCreditCardStatement(getOrCreateStatementForTransaction(existingTransaction));
+            } else {
+                existingTransaction.setCreditCard(null);
+                existingTransaction.setCreditCardStatement(null);
+            }
             existingTransaction.setWallet(walletOpt.get());
             existingTransaction.setCategory(categoryOpt.get());
             existingTransaction.setUser(userOpt.get());
@@ -232,7 +245,10 @@ public class TransactionServiceImpl implements TransactionService {
         List<CreditCardStatement> allStatements = statementRepo.findAllByUser_Id(userId);
         for (CreditCardStatement statement : allStatements) {
             CreditCard card = statement.getCreditCard();
-            LocalDate dueDate = LocalDate.of(statement.getYear(), statement.getMonth(), card.getDueDay());
+
+            int maxDayOfMonth = YearMonth.of(statement.getYear(), statement.getMonth()).lengthOfMonth();
+            int validDueDay = Math.min(card.getDueDay(), maxDayOfMonth);
+            LocalDate dueDate = LocalDate.of(statement.getYear(), statement.getMonth(), validDueDay);
 
             if(!dueDate.isBefore(startDate) && !dueDate.isAfter(endDate)){
                 BigDecimal statementTotal = repo.getTotalAmountForStatement(statement.getId()).orElse(BigDecimal.ZERO);
@@ -250,7 +266,8 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
 
-    private TransactionDto installmentLogic(TransactionDto transactionDto, User user, CreditCard creditCard, TransactionCategory category, Wallet wallet) {
+    private TransactionDto installmentLogic(TransactionDto transactionDto, Optional<User> user, Optional<CreditCard> creditCard,
+                                            Optional<TransactionCategory> category, Optional<Wallet> wallet) {
             var savedTransaction = new Transaction();
             // Criação do grupo de compra parcelada
             var purchaseGroupId = UUID.randomUUID();
@@ -265,9 +282,9 @@ public class TransactionServiceImpl implements TransactionService {
 
             for (int i = 0; i < transactionDto.getTotalInstallments(); i++) {
                 var transaction = new Transaction();
-                transaction.setUser(user);
-                transaction.setWallet(wallet);
-                transaction.setCategory(category);
+                transaction.setUser(user.get());
+                transaction.setWallet(wallet.get());
+                transaction.setCategory(category.get());
                 transaction.setType(transactionDto.getType());
                 transaction.setAmount(installmentAmount);
 
@@ -284,7 +301,7 @@ public class TransactionServiceImpl implements TransactionService {
                 // Verifica método de pagamento
                 if (transactionDto.getPaymentMethod() == PaymentMethod.CREDIT_CARD) {
                     // Lógica para adicionar a transação na fatura correta do cartão de crédito
-                    transaction.setCreditCard(creditCard);
+                    transaction.setCreditCard(creditCard.get());
                     transaction.setPaymentMethod(transactionDto.getPaymentMethod());
                     var st = getOrCreateStatementForTransaction(transaction);
                     transaction.setCreditCardStatement(st);
