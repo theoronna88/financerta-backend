@@ -107,13 +107,25 @@ class TransactionServiceImplTest {
         // Simula o retorno para as validações
         User mockUser = new User();
         mockUser.setId(userId);
+
+        Wallet mockWallet = new Wallet();
+        mockWallet.setId(walletId);
+        mockWallet.setUser(mockUser);
+
+        TransactionCategory mockCategory = new TransactionCategory();
+        mockCategory.setId(categoryId);
+        mockCategory.setUser(mockUser);
+
         when(userRepo.findById(userId)).thenReturn(Optional.of(mockUser));
-        when(walletRepo.findByIdAndUserId(walletId, userId)).thenReturn(Optional.of(new Wallet()));
-        when(categoryRepo.findByIdAndUserId(categoryId, userId)).thenReturn(Optional.of(new TransactionCategory()));
+        when(walletRepo.findByIdAndUserId(walletId, userId)).thenReturn(Optional.of(mockWallet));
+        when(categoryRepo.findByIdAndUserId(categoryId, userId)).thenReturn(Optional.of(mockCategory));
 
         // Quando o repo.save for chamado, retorne uma entidade Transaction mockada
         Transaction savedTransaction = new Transaction();
         savedTransaction.setId(UUID.randomUUID());
+        savedTransaction.setUser(mockUser);
+        savedTransaction.setWallet(mockWallet);
+        savedTransaction.setCategory(mockCategory);
         savedTransaction.setAmount(inputDto.getAmount());
         savedTransaction.setDescription(inputDto.getDescription());
         savedTransaction.setDate(inputDto.getDate());
@@ -251,6 +263,12 @@ class TransactionServiceImplTest {
         newStatementDto.setId(UUID.randomUUID());
         newStatementDto.setCreditCardId(creditCardId);
         when(statementService.save(any(CreditCardStatementDto.class), eq(userId))).thenReturn(newStatementDto);
+
+        // Simula a conversão do DTO para entidade
+        CreditCardStatement mockStatement = new CreditCardStatement();
+        mockStatement.setId(newStatementDto.getId());
+        mockStatement.setCreditCard(mockCreditCard);
+        when(statementService.convertDtoToEntity(any(CreditCardStatementDto.class))).thenReturn(mockStatement);
 
         // Quando o repo.save for chamado, apenas retorne o que foi passado
         when(repo.save(any(Transaction.class))).thenAnswer(invocation -> {
@@ -482,5 +500,261 @@ class TransactionServiceImplTest {
 
         // Verifica que o método delete simples NÃO foi chamado
         verify(repo, never()).delete(any(Transaction.class));
+    }
+
+    /**
+     * Teste 6: Buscar Transações Com Período Específico
+     * <p>
+     * Objetivo: Garantir que o método getTransactions filtra corretamente as transações
+     * dentro de um período específico fornecido.
+     * <p>
+     * Cenário:
+     * - Usuário existe
+     * - Data inicial: 01/11/2025
+     * - Data final: 30/11/2025
+     * - Repositório retorna 2 transações dentro do período
+     * <p>
+     * Resultado esperado:
+     * - Método findByUserIdAndDateBetween é chamado com as datas corretas
+     * - Retorna lista com 2 transações
+     * - Cada transação está dentro do período especificado
+     */
+    @Test
+    void shouldGetTransactionsWithinSpecificPeriod() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        LocalDate startDate = LocalDate.of(2025, 11, 1);
+        LocalDate endDate = LocalDate.of(2025, 11, 30);
+
+        User user = new User();
+        user.setId(userId);
+
+        Wallet wallet = new Wallet();
+        wallet.setId(UUID.randomUUID());
+        wallet.setUser(user);
+
+        TransactionCategory category = new TransactionCategory();
+        category.setId(UUID.randomUUID());
+        category.setUser(user);
+
+        Transaction transaction1 = new Transaction();
+        transaction1.setId(UUID.randomUUID());
+        transaction1.setUser(user);
+        transaction1.setWallet(wallet);
+        transaction1.setCategory(category);
+        transaction1.setDescription("Transação no início do período");
+        transaction1.setAmount(new BigDecimal("100.00"));
+        transaction1.setDate(LocalDate.of(2025, 11, 5));
+        transaction1.setType(TransactionType.EXPENSE);
+        transaction1.setPaymentMethod(PaymentMethod.PIX);
+
+        Transaction transaction2 = new Transaction();
+        transaction2.setId(UUID.randomUUID());
+        transaction2.setUser(user);
+        transaction2.setWallet(wallet);
+        transaction2.setCategory(category);
+        transaction2.setDescription("Transação no fim do período");
+        transaction2.setAmount(new BigDecimal("200.00"));
+        transaction2.setDate(LocalDate.of(2025, 11, 25));
+        transaction2.setType(TransactionType.INCOME);
+        transaction2.setPaymentMethod(PaymentMethod.DEBIT_CARD);
+
+        List<Transaction> transactions = List.of(transaction1, transaction2);
+
+        when(repo.findByUserIdAndDateBetween(userId, startDate, endDate))
+                .thenReturn(transactions);
+
+        // Act
+        List<TransactionDto> result = transactionService.getTransactions(userId, startDate, endDate);
+
+        // Assert
+        assertNotNull(result, "O resultado não deve ser nulo");
+        assertEquals(2, result.size(), "Deve retornar 2 transações");
+
+        assertEquals("Transação no início do período", result.get(0).getDescription(),
+                "Primeira transação deve ter a descrição correta");
+        assertEquals(0, new BigDecimal("100.00").compareTo(result.get(0).getAmount()),
+                "Primeira transação deve ter o valor correto");
+
+        assertEquals("Transação no fim do período", result.get(1).getDescription(),
+                "Segunda transação deve ter a descrição correta");
+        assertEquals(0, new BigDecimal("200.00").compareTo(result.get(1).getAmount()),
+                "Segunda transação deve ter o valor correto");
+
+        verify(repo, times(1)).findByUserIdAndDateBetween(userId, startDate, endDate);
+    }
+
+    /**
+     * Teste 7: Buscar Transações Sem Período Usa Mês Atual Como Default
+     * <p>
+     * Objetivo: Garantir que quando as datas são nulas, o serviço aplica
+     * automaticamente o filtro para o mês atual.
+     * <p>
+     * Cenário:
+     * - Usuário existe
+     * - Data inicial: null
+     * - Data final: null
+     * - Serviço deve aplicar filtro do mês atual (primeiro dia ao último dia do mês)
+     * <p>
+     * Resultado esperado:
+     * - Método findByUserIdAndDateBetween é chamado com datas do mês atual
+     * - Primeira data é o dia 1 do mês atual
+     * - Segunda data é o último dia do mês atual
+     * - Retorna lista de transações do mês atual
+     */
+    @Test
+    void shouldUseCurrentMonthAsDefaultPeriodWhenDatesAreNull() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        LocalDate now = LocalDate.now();
+        LocalDate expectedStartDate = now.withDayOfMonth(1);
+        LocalDate expectedEndDate = now.withDayOfMonth(now.lengthOfMonth());
+
+        User user = new User();
+        user.setId(userId);
+
+        Wallet wallet = new Wallet();
+        wallet.setId(UUID.randomUUID());
+        wallet.setUser(user);
+
+        TransactionCategory category = new TransactionCategory();
+        category.setId(UUID.randomUUID());
+        category.setUser(user);
+
+        Transaction transaction1 = new Transaction();
+        transaction1.setId(UUID.randomUUID());
+        transaction1.setUser(user);
+        transaction1.setWallet(wallet);
+        transaction1.setCategory(category);
+        transaction1.setDescription("Transação do mês atual");
+        transaction1.setAmount(new BigDecimal("150.00"));
+        transaction1.setDate(now);
+        transaction1.setType(TransactionType.EXPENSE);
+        transaction1.setPaymentMethod(PaymentMethod.CREDIT_CARD);
+
+        List<Transaction> transactions = List.of(transaction1);
+
+        when(repo.findByUserIdAndDateBetween(userId, expectedStartDate, expectedEndDate))
+                .thenReturn(transactions);
+
+        // Act
+        List<TransactionDto> result = transactionService.getTransactions(userId, null, null);
+
+        // Assert
+        assertNotNull(result, "O resultado não deve ser nulo");
+        assertEquals(1, result.size(), "Deve retornar 1 transação");
+        assertEquals("Transação do mês atual", result.get(0).getDescription(),
+                "Transação deve ter a descrição correta");
+
+        verify(repo, times(1)).findByUserIdAndDateBetween(
+                eq(userId),
+                eq(expectedStartDate),
+                eq(expectedEndDate)
+        );
+    }
+
+    /**
+     * Teste 8: Buscar Transações Retorna Lista Vazia Quando Não Há Transações no Período
+     * <p>
+     * Objetivo: Garantir que o serviço retorna lista vazia quando não existem
+     * transações dentro do período especificado.
+     * <p>
+     * Cenário:
+     * - Usuário existe
+     * - Período específico é fornecido
+     * - Repositório não encontra transações no período
+     * <p>
+     * Resultado esperado:
+     * - Retorna lista vazia (não nula)
+     * - Método findByUserIdAndDateBetween é chamado
+     */
+    @Test
+    void shouldReturnEmptyListWhenNoTransactionsFoundInPeriod() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        LocalDate startDate = LocalDate.of(2025, 12, 1);
+        LocalDate endDate = LocalDate.of(2025, 12, 31);
+
+        when(repo.findByUserIdAndDateBetween(userId, startDate, endDate))
+                .thenReturn(List.of());
+
+        // Act
+        List<TransactionDto> result = transactionService.getTransactions(userId, startDate, endDate);
+
+        // Assert
+        assertNotNull(result, "O resultado não deve ser nulo");
+        assertTrue(result.isEmpty(), "A lista deve estar vazia");
+
+        verify(repo, times(1)).findByUserIdAndDateBetween(userId, startDate, endDate);
+    }
+
+    /**
+     * Teste 9: Buscar Transações Exclui Transações Fora do Período
+     * <p>
+     * Objetivo: Garantir que apenas transações dentro do período são retornadas,
+     * e transações fora do período são excluídas pelo filtro do repositório.
+     * <p>
+     * Cenário:
+     * - Período: 01/11/2025 a 30/11/2025
+     * - Transação dentro do período: 15/11/2025
+     * - Transação fora do período não é retornada pelo repositório
+     * <p>
+     * Resultado esperado:
+     * - Apenas transações dentro do período são retornadas
+     * - Filtro é aplicado corretamente no nível do repositório
+     */
+    @Test
+    void shouldExcludeTransactionsOutsideOfPeriod() {
+        // Arrange
+        UUID userId = UUID.randomUUID();
+        LocalDate startDate = LocalDate.of(2025, 11, 1);
+        LocalDate endDate = LocalDate.of(2025, 11, 30);
+
+        User user = new User();
+        user.setId(userId);
+
+        Wallet wallet = new Wallet();
+        wallet.setId(UUID.randomUUID());
+        wallet.setUser(user);
+
+        TransactionCategory category = new TransactionCategory();
+        category.setId(UUID.randomUUID());
+        category.setUser(user);
+
+        // Apenas transação dentro do período (repositório já filtra)
+        Transaction transactionInPeriod = new Transaction();
+        transactionInPeriod.setId(UUID.randomUUID());
+        transactionInPeriod.setUser(user);
+        transactionInPeriod.setWallet(wallet);
+        transactionInPeriod.setCategory(category);
+        transactionInPeriod.setDescription("Dentro do período");
+        transactionInPeriod.setAmount(new BigDecimal("100.00"));
+        transactionInPeriod.setDate(LocalDate.of(2025, 11, 15));
+        transactionInPeriod.setType(TransactionType.EXPENSE);
+        transactionInPeriod.setPaymentMethod(PaymentMethod.PIX);
+
+        List<Transaction> transactions = List.of(transactionInPeriod);
+
+        when(repo.findByUserIdAndDateBetween(userId, startDate, endDate))
+                .thenReturn(transactions);
+
+        // Act
+        List<TransactionDto> result = transactionService.getTransactions(userId, startDate, endDate);
+
+        // Assert
+        assertNotNull(result, "O resultado não deve ser nulo");
+        assertEquals(1, result.size(), "Deve retornar apenas 1 transação");
+        assertEquals("Dentro do período", result.get(0).getDescription(),
+                "Deve retornar apenas a transação dentro do período");
+
+        // Verifica que a data está dentro do período
+        LocalDate resultDate = result.get(0).getDate();
+        assertTrue(
+                (resultDate.isEqual(startDate) || resultDate.isAfter(startDate)) &&
+                        (resultDate.isEqual(endDate) || resultDate.isBefore(endDate)),
+                "A data da transação deve estar dentro do período"
+        );
+
+        verify(repo, times(1)).findByUserIdAndDateBetween(userId, startDate, endDate);
     }
 }

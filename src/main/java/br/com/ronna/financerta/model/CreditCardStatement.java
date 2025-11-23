@@ -16,10 +16,10 @@ public class CreditCardStatement {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "userid", nullable = false)
     private User user;
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "credit_card_id", nullable = false)
+    @JoinColumn(name = "creditcardid", nullable = false)
     private CreditCard creditCard;
 
     @Column(nullable = false)
