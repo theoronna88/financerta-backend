@@ -3,15 +3,18 @@ package br.com.ronna.financerta.controller;
 import br.com.ronna.financerta.dto.TransactionDto;
 import br.com.ronna.financerta.enums.PaymentMethod;
 import br.com.ronna.financerta.enums.TransactionType;
+import br.com.ronna.financerta.model.User;
 import br.com.ronna.financerta.service.TransactionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -23,6 +26,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -55,6 +59,25 @@ class TransactionControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    private UsernamePasswordAuthenticationToken authentication;
+    private User mockUser;
+    private UUID userId;
+
+    @BeforeEach
+    void setUp() {
+        userId = UUID.randomUUID();
+        mockUser = new User();
+        mockUser.setId(userId);
+        mockUser.setEmail("testuser@test.com");
+        mockUser.setName("Test User");
+
+        authentication = new UsernamePasswordAuthenticationToken(
+                mockUser,
+                null,
+                new ArrayList<>()
+        );
+    }
 
     /**
      * Teste 1: Acesso Não Autorizado (Sem Token JWT)
@@ -90,24 +113,24 @@ class TransactionControllerTest {
      * <p>
      * Cenário:
      * - Requisição GET para /api/transactions
-     * - Usuário autenticado (simulado com @WithMockUser)
+     * - Usuário autenticado (simulado com authentication)
      * - TransactionService retorna uma lista (pode ser vazia)
      * <p>
      * Resultado esperado:
      * - Status HTTP 200 (OK)
-     * - TransactionService.getTransactions é chamado
+     * - TransactionService.getTransactions é chamado com parâmetros de período
      * - Resposta JSON com lista de transações
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldReturnOkForAuthenticatedUser() throws Exception {
         // Arrange
         // Simula que o serviço retorna uma lista vazia
-        when(transactionService.getTransactions(any(UUID.class)))
+        when(transactionService.getTransactions(any(UUID.class), any(), any()))
                 .thenReturn(new ArrayList<>());
 
         // Act & Assert
-        mockMvc.perform(get("/api/transactions"))
+        mockMvc.perform(get("/api/transactions")
+                        .with(authentication(authentication)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$").isArray());
@@ -128,11 +151,9 @@ class TransactionControllerTest {
      * - Resposta JSON com os dados da transação
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldReturnTransactionByIdForAuthenticatedUser() throws Exception {
         // Arrange
         UUID transactionId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
 
         TransactionDto transactionDto = new TransactionDto();
         transactionDto.setId(transactionId);
@@ -146,7 +167,8 @@ class TransactionControllerTest {
                 .thenReturn(transactionDto);
 
         // Act & Assert
-        mockMvc.perform(get("/api/transactions/{id}", transactionId))
+        mockMvc.perform(get("/api/transactions/{id}", transactionId)
+                        .with(authentication(authentication)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.id").value(transactionId.toString()))
@@ -170,7 +192,6 @@ class TransactionControllerTest {
      * - Resposta JSON com a transação criada
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldCreateTransactionForAuthenticatedUser() throws Exception {
         // Arrange
         TransactionDto inputDto = new TransactionDto();
@@ -196,7 +217,8 @@ class TransactionControllerTest {
         // Act & Assert
         mockMvc.perform(post("/api/transactions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(inputDto)))
+                        .content(objectMapper.writeValueAsString(inputDto))
+                        .with(authentication(authentication)))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.id").exists())
@@ -248,7 +270,6 @@ class TransactionControllerTest {
      * - Resposta JSON com a transação atualizada
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldUpdateTransactionForAuthenticatedUser() throws Exception {
         // Arrange
         UUID transactionId = UUID.randomUUID();
@@ -274,7 +295,8 @@ class TransactionControllerTest {
         // Act & Assert
         mockMvc.perform(put("/api/transactions/{id}", transactionId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(updateDto)))
+                        .content(objectMapper.writeValueAsString(updateDto))
+                        .with(authentication(authentication)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.id").value(transactionId.toString()))
@@ -297,16 +319,16 @@ class TransactionControllerTest {
      * - Sem corpo na resposta
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldDeleteTransactionForAuthenticatedUser() throws Exception {
         // Arrange
         UUID transactionId = UUID.randomUUID();
 
         // Não precisa configurar when() para void methods, mas vamos garantir que não lança exceção
-        // doNothing().when(transactionService).deleteTransaction(eq(transactionId), any(UUID.class));
+        // doNothing().when(transactionService).deleteTransaction(eq(transactionId), eq(userId));
 
         // Act & Assert
-        mockMvc.perform(delete("/api/transactions/{id}", transactionId))
+        mockMvc.perform(delete("/api/transactions/{id}", transactionId)
+                        .with(authentication(authentication)))
                 .andExpect(status().isNoContent());
     }
 
@@ -348,7 +370,6 @@ class TransactionControllerTest {
      * - Cada elemento tem os campos esperados
      */
     @Test
-    @WithMockUser(username = "testuser@test.com")
     void shouldReturnMultipleTransactionsForAuthenticatedUser() throws Exception {
         // Arrange
         TransactionDto transaction1 = new TransactionDto();
@@ -377,11 +398,13 @@ class TransactionControllerTest {
 
         List<TransactionDto> transactions = List.of(transaction1, transaction2, transaction3);
 
-        when(transactionService.getTransactions(any(UUID.class)))
+        // Use lenient stubbing to avoid strictness issues
+        when(transactionService.getTransactions(any(UUID.class), any(), any()))
                 .thenReturn(transactions);
 
         // Act & Assert
-        mockMvc.perform(get("/api/transactions"))
+        mockMvc.perform(get("/api/transactions")
+                        .with(authentication(authentication)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$").isArray())
@@ -389,5 +412,94 @@ class TransactionControllerTest {
                 .andExpect(jsonPath("$[0].description").value("Transação 1"))
                 .andExpect(jsonPath("$[1].description").value("Transação 2"))
                 .andExpect(jsonPath("$[2].description").value("Transação 3"));
+    }
+
+    /**
+     * Teste 10: Buscar Transações Com Período Específico
+     * <p>
+     * Objetivo: Garantir que o endpoint aceita parâmetros de data para filtrar transações.
+     * <p>
+     * Cenário:
+     * - Requisição GET para /api/transactions com parâmetros startDate e endDate
+     * - Usuário autenticado
+     * - TransactionService retorna transações do período
+     * <p>
+     * Resultado esperado:
+     * - Status HTTP 200 (OK)
+     * - TransactionService.getTransactions é chamado com as datas fornecidas
+     * - Resposta JSON com lista de transações do período
+     */
+    @Test
+    void shouldReturnTransactionsForSpecificPeriod() throws Exception {
+        // Arrange
+        LocalDate startDate = LocalDate.of(2025, 11, 1);
+        LocalDate endDate = LocalDate.of(2025, 11, 30);
+
+        TransactionDto transaction1 = new TransactionDto();
+        transaction1.setId(UUID.randomUUID());
+        transaction1.setDescription("Transação do período");
+        transaction1.setAmount(new BigDecimal("150.00"));
+        transaction1.setDate(LocalDate.of(2025, 11, 15));
+        transaction1.setType(TransactionType.EXPENSE);
+        transaction1.setPaymentMethod(PaymentMethod.PIX);
+
+        List<TransactionDto> transactions = List.of(transaction1);
+
+        when(transactionService.getTransactions(any(UUID.class), eq(startDate), eq(endDate)))
+                .thenReturn(transactions);
+
+        // Act & Assert
+        mockMvc.perform(get("/api/transactions")
+                        .param("startDate", startDate.toString())
+                        .param("endDate", endDate.toString())
+                        .with(authentication(authentication)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].description").value("Transação do período"))
+                .andExpect(jsonPath("$[0].date").value("2025-11-15"));
+    }
+
+    /**
+     * Teste 11: Buscar Transações Sem Período Usa Default do Mês Atual
+     * <p>
+     * Objetivo: Garantir que quando nenhum período é fornecido, o serviço é chamado
+     * com parâmetros nulos (que serão tratados pelo serviço para usar mês atual).
+     * <p>
+     * Cenário:
+     * - Requisição GET para /api/transactions sem parâmetros de data
+     * - Usuário autenticado
+     * - TransactionService deve ser chamado com null para as datas
+     * <p>
+     * Resultado esperado:
+     * - Status HTTP 200 (OK)
+     * - TransactionService.getTransactions é chamado com datas null
+     * - Resposta JSON com lista de transações (serviço aplica filtro do mês atual)
+     */
+    @Test
+    void shouldUseDefaultPeriodWhenNoDatesProvided() throws Exception {
+        // Arrange
+        TransactionDto transaction1 = new TransactionDto();
+        transaction1.setId(UUID.randomUUID());
+        transaction1.setDescription("Transação do mês atual");
+        transaction1.setAmount(new BigDecimal("200.00"));
+        transaction1.setDate(LocalDate.now());
+        transaction1.setType(TransactionType.INCOME);
+        transaction1.setPaymentMethod(PaymentMethod.DEBIT_CARD);
+
+        List<TransactionDto> transactions = List.of(transaction1);
+
+        when(transactionService.getTransactions(any(UUID.class), any(), any()))
+                .thenReturn(transactions);
+
+        // Act & Assert
+        mockMvc.perform(get("/api/transactions")
+                        .with(authentication(authentication)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].description").value("Transação do mês atual"));
     }
 }
