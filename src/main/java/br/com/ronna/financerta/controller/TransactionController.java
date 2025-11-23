@@ -1,10 +1,12 @@
 package br.com.ronna.financerta.controller;
 
+import br.com.ronna.financerta.dto.DailySummaryDto;
 import br.com.ronna.financerta.dto.TransactionDto;
 import br.com.ronna.financerta.service.TransactionService;
 import br.com.ronna.financerta.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +35,15 @@ public class TransactionController {
     public ResponseEntity<TransactionDto> findById(@PathVariable UUID id, Principal principal) {
         var userId = SecurityUtils.getUserId(principal);
         return ResponseEntity.ok(transactionService.getTransactionById(id, userId));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<List<DailySummaryDto>> getSummaries(Principal principal,
+                                                              @RequestParam LocalDate startDate,
+                                                              @RequestParam LocalDate endDate) {
+        var userId = SecurityUtils.getUserId(principal);
+        List<DailySummaryDto> summaries = transactionService.getDailySummariesExcludingCreditCard(userId, startDate, endDate);
+        return ResponseEntity.status(HttpStatus.OK).body(summaries);
     }
 
     @PostMapping

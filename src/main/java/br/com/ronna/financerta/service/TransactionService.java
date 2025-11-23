@@ -1,5 +1,6 @@
 package br.com.ronna.financerta.service;
 
+import br.com.ronna.financerta.dto.DailySummaryDto;
 import br.com.ronna.financerta.dto.TransactionDto;
 
 import java.time.LocalDate;
@@ -14,4 +15,5 @@ public interface TransactionService {
     TransactionDto updateTransaction(UUID id, TransactionDto transactionDto, UUID userId);
     void deleteTransaction(UUID id, UUID userId);
 
+    List<DailySummaryDto> getDailySummariesExcludingCreditCard(UUID userId, LocalDate startDate, LocalDate endDate);
 }

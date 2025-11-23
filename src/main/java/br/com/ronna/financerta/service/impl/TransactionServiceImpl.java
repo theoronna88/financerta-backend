@@ -1,6 +1,7 @@
 package br.com.ronna.financerta.service.impl;
 
 import br.com.ronna.financerta.dto.CreditCardStatementDto;
+import br.com.ronna.financerta.dto.DailySummaryDto;
 import br.com.ronna.financerta.dto.TransactionDto;
 import br.com.ronna.financerta.enums.PaymentMethod;
 import br.com.ronna.financerta.exception.TransactionException;
@@ -16,9 +17,8 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -65,17 +65,18 @@ public class TransactionServiceImpl implements TransactionService {
 
             transaction.setUser(userOpt.get());
             transaction.setWallet(walletOpt.get());
-            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
-                transaction.setCreditCard(creditCardOpt.get());
-            }
-            transaction.setCategory(categoryOpt.get());
-
-            transaction.setType(transactionDto.getType());
 
             transaction.setDescription(transactionDto.getDescription());
             transaction.setAmount(transactionDto.getAmount());
             transaction.setDate(transactionDto.getDate());
             transaction.setPaymentMethod(transactionDto.getPaymentMethod());
+            transaction.setCategory(categoryOpt.get());
+            transaction.setType(transactionDto.getType());
+
+            if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                transaction.setCreditCard(creditCardOpt.get());
+                transaction.setCreditCardStatement(getOrCreateStatementForTransaction(transaction));
+            }
 
             transaction.setCreatedAt(LocalDateTime.now());
             transaction.setUpdatedAt(LocalDateTime.now());
@@ -148,17 +149,17 @@ public class TransactionServiceImpl implements TransactionService {
 
                 newTransaction.setUser(userOpt.get());
                 newTransaction.setWallet(walletOpt.get());
-                if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
-                    newTransaction.setCreditCard(creditCardOpt.get());
-                }
-                newTransaction.setCategory(categoryOpt.get());
-
-                newTransaction.setType(transactionDto.getType());
-
                 newTransaction.setDescription(transactionDto.getDescription());
                 newTransaction.setAmount(transactionDto.getAmount());
                 newTransaction.setDate(transactionDto.getDate());
                 newTransaction.setPaymentMethod(transactionDto.getPaymentMethod());
+                newTransaction.setCategory(categoryOpt.get());
+                newTransaction.setType(transactionDto.getType());
+
+                if (transactionDto.getPaymentMethod().equals(PaymentMethod.CREDIT_CARD)) {
+                    newTransaction.setCreditCard(creditCardOpt.get());
+                    newTransaction.setCreditCardStatement(getOrCreateStatementForTransaction(newTransaction));
+                }
 
                 newTransaction.setCreatedAt(existingTransaction.getCreatedAt());
                 newTransaction.setUpdatedAt(LocalDateTime.now());
@@ -221,6 +222,29 @@ public class TransactionServiceImpl implements TransactionService {
         return dto;
     }
 
+    public List<DailySummaryDto> getDailySummariesExcludingCreditCard(UUID userId, LocalDate startDate, LocalDate endDate) {
+
+        Map<LocalDate, BigDecimal> dailyTotals = new HashMap<>();
+
+        List<DailySummaryDto> nonCreditCardSummaries = repo.findDailySummariesForNonCreditCard(userId, startDate, endDate);
+        nonCreditCardSummaries.forEach(summary -> dailyTotals.put(summary.getDate(), summary.getAmount()));
+
+        List<CreditCardStatement> allStatements = statementRepo.findAllByUser_Id(userId);
+        for (CreditCardStatement statement : allStatements) {
+            CreditCard card = statement.getCreditCard();
+            LocalDate dueDate = LocalDate.of(statement.getYear(), statement.getMonth(), card.getDueDay());
+
+            if(!dueDate.isBefore(startDate) && !dueDate.isAfter(endDate)){
+                BigDecimal statementTotal = repo.getTotalAmountForStatement(statement.getId()).orElse(BigDecimal.ZERO);
+                dailyTotals.merge(dueDate, statementTotal, BigDecimal::add);
+            }
+        }
+        return dailyTotals.entrySet().stream()
+                .map(entry -> new DailySummaryDto(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(DailySummaryDto::getDate))
+                .collect(Collectors.toList());
+    }
+
     private LocalDate getInstallmentDate(LocalDate date, int installmentNumber) {
         return date.plusMonths(installmentNumber - 1);
     }
@@ -262,7 +286,9 @@ public class TransactionServiceImpl implements TransactionService {
                     // Lógica para adicionar a transação na fatura correta do cartão de crédito
                     transaction.setCreditCard(creditCard);
                     transaction.setPaymentMethod(transactionDto.getPaymentMethod());
-
+                    var st = getOrCreateStatementForTransaction(transaction);
+                    transaction.setCreditCardStatement(st);
+/*
                     // Lógica para vincular à fatura do cartão de crédito
                     // Verificar se existe fatura para o mês/ano da transação
                     int closingDay = creditCard.getClosingDay();
@@ -296,7 +322,7 @@ public class TransactionServiceImpl implements TransactionService {
                         transaction.setCreditCardStatement(statementService.convertDtoToEntity(creditCardStatementDto));
                     } else {
                         transaction.setCreditCardStatement(statementOpt.get());
-                    }
+                    } */
                     savedTransaction = repo.save(transaction);
                 } else {
                     // Lógica para boleto
@@ -319,6 +345,59 @@ public class TransactionServiceImpl implements TransactionService {
                 }
             }
             return convertToDto(savedTransaction);
+    }
+
+    private CreditCardStatement getOrCreateStatementForTransaction(Transaction transaction) {
+        CreditCard card = transaction.getCreditCard();
+        LocalDate transactionDate = transaction.getDate();
+
+        int closingDay = card.getClosingDay();
+        int dueDay = card.getDueDay();
+
+        // Definir a data de fechamento no mês da transação
+        // Cuidado: Se for dia 31 e o mês tiver 30 dias, LocalDate.of dá erro.
+        // Tratamos isso pegando o último dia válido do mês se necessário.
+        int validClosingDay = Math.min(closingDay, transactionDate.lengthOfMonth());
+        LocalDate closingDateThisMonth = transactionDate.withDayOfMonth(validClosingDay);
+
+        // Determinar a "Data Base" para o cálculo do vencimento
+        // Se a compra foi DEPOIS do fechamento, ela pertence ao mês seguinte.
+        LocalDate referenceDate;
+        if (transactionDate.isAfter(closingDateThisMonth)) {
+            referenceDate = transactionDate.plusMonths(1);
+        } else {
+            referenceDate = transactionDate;
+        }
+
+        // Calcular a Data de Vencimento Real
+        // Tentamos fixar o dia do vencimento no mês de referência
+        int maxDayOfRefMonth = referenceDate.lengthOfMonth();
+        int validDueDay = Math.min(dueDay, maxDayOfRefMonth);
+
+        LocalDate finalDueDate = referenceDate.withDayOfMonth(validDueDay);
+
+        // Se o dia do vencimento for menor que o fechamento,
+        // significa que o vencimento é no mês seguinte ao da referência da fatura.
+        if (dueDay < closingDay) {
+            finalDueDate = finalDueDate.plusMonths(1);
+        }
+
+        //Cria o statement se não existir
+        var st = statementRepo.findByCreditCardIdAndMonthAndYear(card.getId(), finalDueDate.getMonthValue(), finalDueDate.getYear());
+        Optional<CreditCardStatement> stOpt;
+        if(st.isEmpty()) {
+            var newStatement = new CreditCardStatement();
+            newStatement.setUser(transaction.getUser());
+            newStatement.setCreditCard(card);
+            newStatement.setTransactions(List.of(transaction));
+            newStatement.setMonth(finalDueDate.getMonthValue());
+            newStatement.setYear(finalDueDate.getYear());
+            stOpt = Optional.of(statementRepo.save(newStatement));
+        } else {
+            stOpt = st;
+        }
+
+        return stOpt.get();
     }
 
 
