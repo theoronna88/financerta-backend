@@ -84,9 +84,18 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
+
     @Override
-    public List<TransactionDto> getTransactions(UUID userId) {
-        List<Transaction> transactionList = repo.findByUserId(userId);
+    public List<TransactionDto> getTransactions(UUID userId, LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null) {
+            // List<Transaction> transactionList = repo.findByUserId(userId);
+            // return transactionList.stream().map(this::convertToDto).toList();
+            // Para não sobrecarregar o sistema, fazer o filtro se tornar o mês atual
+            LocalDate now = LocalDate.now();
+            startDate = now.withDayOfMonth(1);
+            endDate = now.withDayOfMonth(now.lengthOfMonth());
+        }
+        List<Transaction> transactionList = repo.findByUserIdAndDateBetween(userId, startDate, endDate);
         return transactionList.stream().map(this::convertToDto).toList();
     }
 

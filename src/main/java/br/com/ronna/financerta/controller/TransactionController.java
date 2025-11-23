@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,9 +23,10 @@ public class TransactionController {
     private final TransactionService transactionService;
 
     @GetMapping
-    public ResponseEntity<List<TransactionDto>> findAll(Principal principal) {
+    public ResponseEntity<List<TransactionDto>> findAll(Principal principal, @RequestParam(required = false)LocalDate startDate,
+                                                        @RequestParam(required = false)LocalDate endDate) {
         var userId = SecurityUtils.getUserId(principal);
-        return ResponseEntity.ok(transactionService.getTransactions(userId));
+        return ResponseEntity.ok(transactionService.getTransactions(userId, startDate, endDate));
     }
 
     @GetMapping("/{id}")
